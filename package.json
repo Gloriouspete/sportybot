@@ -1,0 +1,13 @@
+{
+  "name": "sportybet-splitter",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "bun run index.js"
+  },
+  "dependencies": {
+    "@grammyjs/conversations": "^2.1.1",
+    "grammy": "^1.41.1",
+    "puppeteer-core": "^21.0.0"
+  }
+}
