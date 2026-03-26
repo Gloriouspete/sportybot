@@ -27,14 +27,23 @@ bot.use(createConversation(loginFlow));
 async function splitFlow(conversation: MyConversation, ctx: MyContext) {
   await ctx.reply("📋 Send me the booking code:");
   const codeCtx = await conversation.wait();
+  if (codeCtx.message?.text === "/cancel") {
+    return ctx.reply(`Conversation Cancelled ❌`)
+  }
   const bookingCode = codeCtx.message?.text;
 
   await ctx.reply("📋 How many slips do you want it to create:");
   const roundCtx = await conversation.wait();
+  if (roundCtx.message?.text === "/cancel") {
+    return ctx.reply(`Conversation Cancelled ❌`)
+  }
   const rounds = roundCtx.message?.text;
 
   await ctx.reply("✂️ How many games per slip do you want?");
   const countCtx = await conversation.wait();
+  if (countCtx.message?.text === "/cancel") {
+    return ctx.reply(`Conversation Cancelled ❌`)
+  }
   const splitCount = Number(countCtx.message?.text);
 
   if (isNaN(splitCount) || splitCount < 2) {
@@ -43,6 +52,9 @@ async function splitFlow(conversation: MyConversation, ctx: MyContext) {
 
   await ctx.reply("💰 How much stake per slip? (in ₦)");
   const stakeCtx = await conversation.wait();
+  if (stakeCtx.message?.text === "/cancel") {
+    return ctx.reply(`Conversation Cancelled ❌`)
+  }
   const stake = Number(stakeCtx.message?.text);
 
   if (isNaN(stake) || stake <= 0) {
@@ -78,10 +90,16 @@ async function splitFlow(conversation: MyConversation, ctx: MyContext) {
 async function loginFlow(conversation: MyConversation, ctx: MyContext) {
   await ctx.reply("📋 Send me the phone number:");
   const phoneCtx = await conversation.wait();
+  if (phoneCtx.message?.text === "/cancel") {
+    return ctx.reply(`Conversation Cancelled ❌`)
+  }
   const phoneCode = phoneCtx.message?.text;
 
   await ctx.reply("📋 Send the password:");
   const passwordCtx = await conversation.wait();
+  if (passwordCtx.message?.text === "/cancel") {
+    return ctx.reply(`Conversation Cancelled ❌`);
+  }
   const rounds = passwordCtx.message?.text;
 
   await ctx.reply(`🔄 Logging in at the moment ...`, {
@@ -94,22 +112,24 @@ async function loginFlow(conversation: MyConversation, ctx: MyContext) {
   };
 
   try {
-    const results = await login(String(phoneCode), String(rounds), log);
+    const results = await login(String(phoneCode), Number(rounds), log);
 
     await ctx.reply(`*Done!*\n\n${results}`, { parse_mode: "Markdown" });
   } catch (err: any) {
     await ctx.reply(`❌ Error: ${err.message}`);
   }
 }
+
 bot.use(async (ctx, next) => {
   if (ctx.from?.id !== YOUR_CHAT_ID) return;
   await next();
 });
 
-// await bot.api.setMyCommands([
-//   { command: 'split', description: 'Split a booking code into multiple slips' },
-//   { command: 'login', description: 'Login Into Sporty Account' },
-// ])
+await bot.api.setMyCommands([
+  { command: "split", description: "Split a booking code into multiple slips" },
+  { command: "login", description: "Login Into Sporty Account" },
+  { command: "cancel", description: "Cancel your current convo" },
+]);
 
 bot.command("split", async (ctx) => {
   console.log("split command received from", ctx.from?.id);

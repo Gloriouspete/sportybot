@@ -258,7 +258,6 @@ export async function main(
   try {
     let round = 1;
     let totalPlaced = 0;
-
     while (true) {
       console.log(`\n${"═".repeat(48)}`);
       console.log(`  Round ${round}`);
@@ -302,7 +301,9 @@ export async function main(
     await browser.close();
     console.log(`\n${"═".repeat(48)}`);
     return `📊 Done! Total bets placed: ${totalPlaced}`;
-  } catch (error) {
-    await browser.close();
+  } catch (error:any) {
+    return error?.message || error
+  } finally {
+    await browser.close()
   }
 }
