@@ -2,7 +2,6 @@ import puppeteer, { Browser, Page } from "puppeteer-core";
 import * as path from "path";
 import * as os from "os";
 
-
 const CHROME_PATHS: Record<string, string> = {
   darwin: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   linux: "/usr/bin/google-chrome",
@@ -25,14 +24,9 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-
-
 async function launchBrowser(
   log: Function,
 ): Promise<{ browser: Browser; page: Page }> {
-  console.log(`\n🚀 Launching Chrome...`);
-  console.log(`   Profile dir: ${USER_DATA_DIR}\n`);
-
   // const browser = await puppeteer.launch({
   //   executablePath: getChromePath(),
   //   userDataDir: USER_DATA_DIR,
@@ -40,46 +34,46 @@ async function launchBrowser(
   //   defaultViewport: null,
   //   args: ["--no-sandbox", "--disable-setuid-sandbox", "--start-maximized"],
   // });
+  try {
+    const browser = await puppeteer.launch({
+      executablePath: getChromePath(),
+      userDataDir: USER_DATA_DIR,
+      headless: true,
+      defaultViewport: null,
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+      ],
+    });
 
-  
-  const browser = await puppeteer.launch({
-    executablePath: getChromePath(),
-    userDataDir: USER_DATA_DIR,
-    headless: true,
-    defaultViewport: null,
-    args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-      ]
-  });
-  
-  const page = await browser.newPage();
-  await page.goto(SPORTYBET_URL, { waitUntil: "domcontentloaded" });
-  await page.waitForSelector(".m-info.on", { timeout: 15000 });
+    const page = await browser.newPage();
+    await page.goto(SPORTYBET_URL, { waitUntil: "networkidle2" });
+    await sleep(500);
+    await page.waitForSelector(".m-info.on", { timeout: 15000 });
 
-  const loggedIn = await page.$("div.m-info.on");
+    const loggedIn = await page.$("div.m-info.on");
 
-  if (!loggedIn) {
-    await log(
-      "⚠️  Not logged in. Please log in manually.",
-    );
+    if (!loggedIn) {
+      await log("⚠️  Not logged in. Please log in manually.");
 
-    await page
-      .waitForSelector("div.m-info.on", { timeout: 3000 })
-      .catch(() => {
-        throw new Error("Timed out waiting for login. Please try again.");
-      });
+      await page
+        .waitForSelector("div.m-info.on", { timeout: 3000 })
+        .catch(() => {
+          throw new Error("Timed out waiting for login. Please try again.");
+        });
+    }
+
+    const balance = await page
+      .$eval("#j_balance", (el) => (el as HTMLElement).innerText)
+      .catch(() => "unknown");
+    console.log(`✅ Logged in — Balance: ${balance}`);
+    log(`✅ Logged in — Balance: ${balance}`);
+    return { browser, page };
+  } catch (error: any) {
+    throw new Error(error?.message || error);
   }
-
-  const balance = await page
-    .$eval("#j_balance", (el) => (el as HTMLElement).innerText)
-    .catch(() => "unknown");
-  console.log(`✅ Logged in — Balance: ${balance}`);
-  log(`✅ Logged in — Balance: ${balance}`);
-  return { browser, page };
 }
-
 
 async function loadBookingCode(page: Page, code: string): Promise<void> {
   console.log(`\n📋 Loading booking code: ${code}`);
@@ -133,7 +127,6 @@ async function loadBookingCode(page: Page, code: string): Promise<void> {
   console.log("✅ Booking code loaded");
 }
 
-
 async function getGameCount(page: Page): Promise<number> {
   return page.evaluate((): number => {
     return document.querySelectorAll(
@@ -141,7 +134,6 @@ async function getGameCount(page: Page): Promise<number> {
     ).length;
   });
 }
-
 
 async function removeGamesRandomly(
   page: Page,
@@ -202,10 +194,9 @@ async function removeGamesRandomly(
   return remaining;
 }
 
-
 type BetResult = "success" | "insufficient_funds" | "error" | "unknown";
 
-async function placeBet(page: Page,): Promise<BetResult> {
+async function placeBet(page: Page): Promise<BetResult> {
   console.log("💰 Placing bet...");
 
   const acceptChangeBtn = await page.$('[data-cms-key="accept_changes"]');
@@ -245,7 +236,6 @@ async function placeBet(page: Page,): Promise<BetResult> {
 
   return "error";
 }
-
 
 export async function main(
   bookingCode: string,
@@ -316,4 +306,3 @@ export async function main(
     await browser.close();
   }
 }
-
