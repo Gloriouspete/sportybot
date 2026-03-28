@@ -144,6 +144,7 @@ async function removeGamesRandomly(
     console.log(`   ⚠️  Only ${totalGames} games available, keeping all.`);
     return totalGames;
   }
+
   await page.locator('[data-cms-key="multiple"]').click();
   const input = await page.$(".m-input-com input");
 
@@ -153,16 +154,18 @@ async function removeGamesRandomly(
   }
 
   const removeCount = totalGames - keepCount;
-  console.log("we remove ",removeCount)
+  console.log("we remove ", removeCount);
   for (let i = 0; i < removeCount; i++) {
-    const randomIndex = Math.floor(
-      Math.random() * (await page.locator(".m-icon-delete").count()),
-    );
-    console.log(randomIndex,"random")
-    await page.locator(".m-icon-delete").nth(randomIndex).click();
+    const deleteButtons = page.locator(".m-icon-delete");
+    const count = await deleteButtons.count();
+    if (count === 0) break;
+    const randomIndex = Math.floor(Math.random() * count);
+    const target = deleteButtons.nth(randomIndex);
+    await target.waitFor({ state: "visible", timeout: 5000 });
+    await target.click();
     await page.waitForTimeout(350);
   }
-  
+
   await sleep(1000);
   const remaining = await getGameCount(page);
   return remaining;
@@ -174,12 +177,12 @@ async function placeBet(page: Page): Promise<BetResult> {
   console.log("💰 Placing bet...");
 
   const acceptChangeBtn = page.locator('[data-cms-key="accept_changes"]');
-  await acceptChangeBtn.waitFor({ timeout: 1000 }).catch(() => null)
+  await acceptChangeBtn.waitFor({ timeout: 1000 }).catch(() => null);
   if (acceptChangeBtn) {
     await acceptChangeBtn.click();
     await sleep(350);
   }
-  
+
   const placeBetBtn = page.locator('[data-cms-key="place_bet"]');
   if (placeBetBtn) {
     await placeBetBtn.click();
@@ -187,7 +190,7 @@ async function placeBet(page: Page): Promise<BetResult> {
   } else {
     throw new Error("Cannot find the Place Bet Button");
   }
-  
+
   const confirmBtn = page.locator('[data-cms-key="confirm"]');
   if (await confirmBtn.isVisible()) {
     await confirmBtn.click();
