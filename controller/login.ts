@@ -60,9 +60,9 @@ async function loadLogger(
   console.log(`\n📋 Loading phone number: ${phonecode}`);
   await page.goto(SPORTYBET_URL, { waitUntil: "domcontentloaded" });
   await sleep(500);
-  const isLoggedIn = page.locator(".m-info.on") !== null;
+  const isLoggedIn = page.locator(".m-info.on");
   console.log(phonecode, password);
-  if (isLoggedIn) {
+  if (await isLoggedIn.isVisible()) {
     const balance = await page
       .locator("#j_balance").innerText()
       .catch(() => "unknown");
