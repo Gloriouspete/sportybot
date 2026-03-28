@@ -162,7 +162,8 @@ async function removeGamesRandomly(
     const randomIndex = Math.floor(Math.random() * count);
     const target = deleteButtons.nth(randomIndex);
     await target.waitFor({ state: "visible", timeout: 5000 });
-    await target.click();
+    await target.scrollIntoViewIfNeeded()
+    await target.click({force:true});
     await page.waitForTimeout(350);
   }
 
