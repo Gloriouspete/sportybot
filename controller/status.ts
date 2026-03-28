@@ -53,8 +53,8 @@ async function launchBrowser(
 async function loadLogger(page: Page, log: Function): Promise<string> {
   await page.goto(SPORTYBET_URL, { waitUntil: "domcontentloaded" });
   await sleep(500);
-  const isLoggedIn = (page.locator(".m-info.on")) !== null;
-  if (isLoggedIn) {
+  const isLoggedIn = page.locator(".m-info.on");
+  if (await isLoggedIn.isVisible()) {
     const balance = await page
       .locator("#j_balance").innerText()
       .catch(() => "unknown");

@@ -72,7 +72,7 @@ async function loadBookingCode(page: Page, code: string): Promise<void> {
   await page.goto(SPORTYBET_URL, { waitUntil: "domcontentloaded" });
   await sleep(2000);
   // Click the booking code button
-  const deleteBtn = await page.$$(".m-icon-delete");
+  const deleteBtn = await page.locator(".m-icon-delete").all();
   const clicked = await page.evaluate((): boolean => {
     const all = [
       ...document.querySelectorAll<HTMLElement>("button, a, span, div"),
@@ -189,7 +189,7 @@ async function placeBet(page: Page): Promise<BetResult> {
   }
   
   const confirmBtn = page.locator('[data-cms-key="confirm"]');
-  if (confirmBtn) {
+  if (await confirmBtn.isVisible()) {
     await confirmBtn.click();
   } else {
     throw new Error("Cannot find the confirm Button");
