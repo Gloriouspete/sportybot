@@ -1,4 +1,4 @@
-import puppeteer, { Browser, Page } from "puppeteer-core";
+import { chromium, BrowserContext, Page } from "playwright-core";
 import * as path from "path";
 import * as os from "os";
 
@@ -6,8 +6,6 @@ const CHROME_PATHS: Record<string, string> = {
   darwin: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   linux: "/usr/bin/google-chrome",
 };
-
-const USER_DATA_DIR = path.join(os.homedir(), ".sportybet-chrome-profile");
 const SPORTYBET_URL = "https://www.sportybet.com/ng/";
 
 function sleep(ms: number): Promise<void> {
@@ -26,28 +24,25 @@ function getChromePath(): string {
   );
 }
 
-async function launchBrowser(): Promise<{ browser: Browser; page: Page }> {
+async function launchBrowser(
+  userid: string,
+): Promise<{ browser: BrowserContext; page: Page }> {
+  const USER_DATA_DIR = path.join(
+    os.homedir(),
+    `.sportybet-chrome-profile-${userid}`,
+  );
   console.log(`\n🚀 Launching Chrome...`);
   console.log(`   Profile dir: ${USER_DATA_DIR}\n`);
 
-  // const browser = await puppeteer.launch({
-  //   executablePath: getChromePath(),
-  //   userDataDir: USER_DATA_DIR,
-  //   headless: false,
-  //   defaultViewport: null,
-  //   args: ["--no-sandbox", "--disable-setuid-sandbox", "--start-maximized"],
-  // });
-  // 
-  const browser = await puppeteer.launch({
+  const browser = await chromium.launchPersistentContext(USER_DATA_DIR, {
     executablePath: getChromePath(),
-    userDataDir: USER_DATA_DIR,
     headless: true,
-    defaultViewport: null,
     args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-      ]
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+    ],
+    viewport: null,
   });
 
   const page = await browser.newPage();
@@ -63,12 +58,13 @@ async function loadLogger(
   log: Function,
 ): Promise<string> {
   console.log(`\n📋 Loading phone number: ${phonecode}`);
-  await page.goto(SPORTYBET_URL, { waitUntil: "networkidle2" });
+  await page.goto(SPORTYBET_URL, { waitUntil: "domcontentloaded" });
   await sleep(500);
-  const isLoggedIn = (await page.$(".m-info.on")) !== null;
+  const isLoggedIn = page.locator(".m-info.on") !== null;
+  console.log(phonecode, password);
   if (isLoggedIn) {
     const balance = await page
-      .$eval("#j_balance", (el) => (el as HTMLElement).innerText)
+      .locator("#j_balance").innerText()
       .catch(() => "unknown");
 
     log(`✅ Logged in — Balance: ${balance}`);
@@ -76,45 +72,33 @@ async function loadLogger(
     return "logged in already";
   }
 
-  await page.$eval(
-    'input[name="phone"]',
-    (el: HTMLInputElement) => (el.value = ""),
-  );
-  await page.type('input[name="phone"]', phonecode);
+  await page.locator('input[name="phone"]').fill(phonecode);
+  await page.locator('input[name="psd"]').fill(password);
+  await page.locator('button[name="logIn"]').click();
 
-  await page.$eval(
-    'input[name="psd"]',
-    (el: HTMLInputElement) => (el.value = ""),
-  );
-  await page.type('input[name="psd"]', password);
-
-  await page.click('button[name="logIn"]');
   await Promise.race([
     page.waitForSelector(".m-info.on", { timeout: 15000 }),
     page.waitForSelector(".m-error-wrapper i", { timeout: 15000 }),
   ]);
 
-  const error = await page.$(".m-error-wrapper i");
-  if (error) {
-    const msg = await page.$eval(".m-error-wrapper", (el) =>
-      el.textContent?.trim(),
-    );
-    throw new Error(`Login failed: ${msg}`);
+  const errorCount = await page.locator(".m-error-wrapper i").count();
+  if (errorCount > 0) {
+    const msg = await page.locator(".m-error-wrapper").textContent();
+    throw new Error(`Login failed: ${msg?.trim()}`);
   }
 
   const balance = await page
-    .$eval("#j_balance", (el) => (el as HTMLElement).innerText)
+    .locator("#j_balance")
+    .innerText()
     .catch(() => "unknown");
-  console.log(`✅ Logged in — Balance: ${balance}`);
   log(`✅ Logged in — Balance: ${balance}`);
-
-
   return `✅ Logged in — Balance: ${balance}`;
 }
 
 export async function login(
+  userId: string,
   phoneCode: string,
-  password: number,
+  password: string,
   log: Function,
 ): Promise<string> {
   console.log("╔══════════════════════════════════════════╗");
@@ -126,7 +110,7 @@ export async function login(
     return "Invalid Phone Number";
   }
 
-  const { browser, page } = await launchBrowser();
+  const { browser, page } = await launchBrowser(userId);
   console.log("dom loaded");
   try {
     const result = await loadLogger(page, phoneCode, String(password), log);

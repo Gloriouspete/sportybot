@@ -5,9 +5,10 @@ import {
   createConversation,
   Conversation,
 } from "@grammyjs/conversations";
-import { main } from "../main.ts";
+import { main } from "../controller/main.ts";
 import type { SessionFlavor } from "grammy";
-import { login } from "../login.ts";
+import { login } from "../controller/login.ts";
+import { Status } from "../controller/status.ts";
 const token = process.env.BOT_TOKEN;
 
 type SessionData = {};
@@ -16,7 +17,6 @@ type MyContext = Context &
   ConversationFlavor<Context>;
 
 const bot = new Bot<MyContext>(String(token));
-const YOUR_CHAT_ID = 7090272717;
 type MyConversation = Conversation<MyContext, MyContext>;
 
 bot.use(session({ initial: (): SessionData => ({}) }));
@@ -32,6 +32,7 @@ async function splitFlow(conversation: MyConversation, ctx: MyContext) {
   }
   const bookingCode = codeCtx.message?.text;
 
+  
   await ctx.reply("📋 How many slips do you want it to create:");
   const roundCtx = await conversation.wait();
   if (roundCtx.message?.text === "/cancel") {
@@ -39,6 +40,7 @@ async function splitFlow(conversation: MyConversation, ctx: MyContext) {
   }
   const rounds = roundCtx.message?.text;
 
+  
   await ctx.reply("✂️ How many games per slip do you want?");
   const countCtx = await conversation.wait();
   if (countCtx.message?.text === "/cancel") {
@@ -62,7 +64,7 @@ async function splitFlow(conversation: MyConversation, ctx: MyContext) {
   }
 
   await ctx.reply(
-    `🔄 Splitting *${bookingCode}* into *${splitCount}* slips of *₦${stake}* each...`,
+    `🔄 Splitting *${bookingCode}* into *${rounds}* slips and playing *${splitCount}* games each for *₦${stake}* ...`,
     { parse_mode: "Markdown" },
   );
 
@@ -74,6 +76,7 @@ async function splitFlow(conversation: MyConversation, ctx: MyContext) {
 
   try {
     const results = await main(
+      String(ctx.from?.id),
       String(bookingCode),
       splitCount,
       Number(rounds),
@@ -90,6 +93,7 @@ async function splitFlow(conversation: MyConversation, ctx: MyContext) {
 async function loginFlow(conversation: MyConversation, ctx: MyContext) {
   await ctx.reply("📋 Send me the phone number:");
   const phoneCtx = await conversation.wait();
+  
   if (phoneCtx.message?.text === "/cancel") {
     return ctx.reply(`Conversation Cancelled ❌`)
   }
@@ -100,7 +104,7 @@ async function loginFlow(conversation: MyConversation, ctx: MyContext) {
   if (passwordCtx.message?.text === "/cancel") {
     return ctx.reply(`Conversation Cancelled ❌`);
   }
-  const rounds = passwordCtx.message?.text;
+  const password = passwordCtx.message?.text;
 
   await ctx.reply(`🔄 Logging in at the moment ...`, {
     parse_mode: "Markdown",
@@ -112,7 +116,7 @@ async function loginFlow(conversation: MyConversation, ctx: MyContext) {
   };
 
   try {
-    const results = await login(String(phoneCode), Number(rounds), log);
+    const results = await login(String(ctx.from?.id),String(phoneCode), String(password), log);
 
     await ctx.reply(`*Done!*\n\n${results}`, { parse_mode: "Markdown" });
   } catch (err: any) {
@@ -120,14 +124,15 @@ async function loginFlow(conversation: MyConversation, ctx: MyContext) {
   }
 }
 
-bot.use(async (ctx, next) => {
-  if (ctx.from?.id !== YOUR_CHAT_ID) return;
-  await next();
-});
+// bot.use(async (ctx, next) => {
+//   if (ctx.from?.id !== YOUR_CHAT_ID) return;
+//   await next();
+// });
 
 await bot.api.setMyCommands([
   { command: "split", description: "Split a booking code into multiple slips" },
   { command: "login", description: "Login Into Sporty Account" },
+  { command: "status", description: "Check If You're Currently Logged in" },
   { command: "cancel", description: "Cancel your current convo" },
 ]);
 
@@ -139,6 +144,21 @@ bot.command("split", async (ctx) => {
 bot.command("login", async (ctx) => {
   console.log("Login command received from", ctx.from?.id);
   await ctx.conversation.enter("loginFlow");
+});
+
+bot.command("status", async (ctx) => {
+  const log = async (msg: string) => {
+    await ctx.reply(msg);
+    console.log(msg);
+  };
+  try {
+    await log("Checking Auth Status ...")
+    const results = await Status(String(ctx.from?.id), log);
+
+    await ctx.reply(`*Done!*\n\n${results}`, { parse_mode: "Markdown" });
+  } catch (err: any) {
+    await ctx.reply(`❌ Error: ${err.message}`);
+  }
 });
 
 bot.on("message", (ctx) => {

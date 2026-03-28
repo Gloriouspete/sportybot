@@ -1,4 +1,4 @@
-import puppeteer, { Browser, Page } from "puppeteer-core";
+import { chromium, BrowserContext, Page } from "playwright-core";
 import * as path from "path";
 import * as os from "os";
 
@@ -6,9 +6,8 @@ const CHROME_PATHS: Record<string, string> = {
   darwin: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   linux: "/usr/bin/google-chrome",
 };
-
-const USER_DATA_DIR = path.join(os.homedir(), ".sportybet-chrome-profile");
 const SPORTYBET_URL = "https://www.sportybet.com/ng/";
+
 function getChromePath(): string {
   return (
     process.env.CHROME_PATH ??
@@ -25,50 +24,42 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function launchBrowser(
+  userid: string,
   log: Function,
-): Promise<{ browser: Browser; page: Page }> {
-  // const browser = await puppeteer.launch({
-  //   executablePath: getChromePath(),
-  //   userDataDir: USER_DATA_DIR,
-  //   headless: true,
-  //   defaultViewport: null,
-  //   args: ["--no-sandbox", "--disable-setuid-sandbox", "--start-maximized"],
-  // });
+): Promise<{ browser: BrowserContext; page: Page }> {
+  const USER_DATA_DIR = path.join(
+    os.homedir(),
+    `.sportybet-chrome-profile-${userid}`,
+  );
+
   try {
-    const browser = await puppeteer.launch({
+    const browser = await chromium.launchPersistentContext(USER_DATA_DIR, {
       executablePath: getChromePath(),
-      userDataDir: USER_DATA_DIR,
       headless: true,
-      defaultViewport: null,
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
         "--disable-dev-shm-usage",
       ],
+      viewport: null,
     });
 
     const page = await browser.newPage();
-    await page.goto(SPORTYBET_URL, { waitUntil: "networkidle2" });
-    await sleep(500);
-    await page.waitForSelector(".m-info.on", { timeout: 15000 });
+    await page.goto(SPORTYBET_URL, { waitUntil: "domcontentloaded" });
 
-    const loggedIn = await page.$("div.m-info.on");
-
-    if (!loggedIn) {
+    try {
+      await page.waitForSelector(".m-info.on", { timeout: 15000 });
+    } catch {
       await log("⚠️  Not logged in. Please log in manually.");
-
-      await page
-        .waitForSelector("div.m-info.on", { timeout: 3000 })
-        .catch(() => {
-          throw new Error("Timed out waiting for login. Please try again.");
-        });
+      throw new Error("Timed out waiting for login. Please try again.");
     }
 
     const balance = await page
-      .$eval("#j_balance", (el) => (el as HTMLElement).innerText)
+      .locator("#j_balance")
+      .innerText()
       .catch(() => "unknown");
-    console.log(`✅ Logged in — Balance: ${balance}`);
-    log(`✅ Logged in — Balance: ${balance}`);
+
+    await log(`✅ Logged in — Balance: ${balance}`);
     return { browser, page };
   } catch (error: any) {
     throw new Error(error?.message || error);
@@ -78,7 +69,7 @@ async function launchBrowser(
 async function loadBookingCode(page: Page, code: string): Promise<void> {
   console.log(`\n📋 Loading booking code: ${code}`);
 
-  await page.goto(SPORTYBET_URL, { waitUntil: "networkidle2" });
+  await page.goto(SPORTYBET_URL, { waitUntil: "domcontentloaded" });
   await sleep(2000);
   // Click the booking code button
   const deleteBtn = await page.$$(".m-icon-delete");
@@ -116,12 +107,12 @@ async function loadBookingCode(page: Page, code: string): Promise<void> {
   await page.click(inputSel, { clickCount: 3 });
   await page.type(inputSel, code, { delay: 80 });
   await page.click('[data-op="desktop-booking-code-load-button"]');
-  await sleep(3000);
-  const input = await page.$(".m-input-com input");
+  await sleep(2000);
+  const input = page.locator(".m-input-com input");
 
   if (input) {
     await input?.click();
-    await input.type("10");
+    await input.fill("10");
   }
 
   console.log("✅ Booking code loaded");
@@ -141,56 +132,39 @@ async function removeGamesRandomly(
   stake: number,
 ): Promise<number> {
   console.log(`\n🎲 Keeping ${keepCount} random games, removing the rest...`);
-
-  const totalGames = (await page.$$(".m-icon-delete")).length;
+  const deleteLocator = page.locator(".m-icon-delete");
+  const totalGames = await deleteLocator.count();
 
   if (totalGames === 0)
     throw new Error(
       "No games found in betslip. Check the booking code or selectors.",
     );
 
-  console.log(`   Total games in slip: ${totalGames}`);
-
   if (totalGames <= keepCount) {
     console.log(`   ⚠️  Only ${totalGames} games available, keeping all.`);
     return totalGames;
   }
-
-  const multipleSelection = await page.$('[data-cms-key="multiple"]');
-  await multipleSelection?.click();
+  await page.locator('[data-cms-key="multiple"]').click();
   const input = await page.$(".m-input-com input");
 
   if (input) {
     await input.click({ clickCount: 3 });
-    await input.type("");
-    await input.type(String(stake));
+    await input.fill(String(stake));
   }
-  // const deleteBtns = await page.$$(".m-icon-delete");
-  // const shuffled = deleteBtns.sort(() => Math.random() - 0.5);
-  // const toRemove = shuffled.slice(keepCount);
-  // console.log(`   Removing ${toRemove.length} games...`);
-
-  // for (const btn of toRemove) {
-  //   await btn.click();
-  //   await sleep(350);
-  // }
-  //
 
   const removeCount = totalGames - keepCount;
-
+  console.log("we remove ",removeCount)
   for (let i = 0; i < removeCount; i++) {
-    const deleteBtns = await page.$$(".m-icon-delete");
-    const randomIndex = Math.floor(Math.random() * deleteBtns.length);
-    await deleteBtns[randomIndex].click();
-    await sleep(350);
+    const randomIndex = Math.floor(
+      Math.random() * (await page.locator(".m-icon-delete").count()),
+    );
+    console.log(randomIndex,"random")
+    await page.locator(".m-icon-delete").nth(randomIndex).click();
+    await page.waitForTimeout(350);
   }
-
+  
   await sleep(1000);
-
   const remaining = await getGameCount(page);
-
-  console.log(`   ✅ ${remaining} games remaining`);
-
   return remaining;
 }
 
@@ -199,20 +173,22 @@ type BetResult = "success" | "insufficient_funds" | "error" | "unknown";
 async function placeBet(page: Page): Promise<BetResult> {
   console.log("💰 Placing bet...");
 
-  const acceptChangeBtn = await page.$('[data-cms-key="accept_changes"]');
-
+  const acceptChangeBtn = page.locator('[data-cms-key="accept_changes"]');
+  await acceptChangeBtn.waitFor({ timeout: 1000 }).catch(() => null)
   if (acceptChangeBtn) {
     await acceptChangeBtn.click();
     await sleep(350);
   }
-  const placeBetBtn = await page.$('[data-cms-key="place_bet"]');
+  
+  const placeBetBtn = page.locator('[data-cms-key="place_bet"]');
   if (placeBetBtn) {
     await placeBetBtn.click();
     await sleep(350);
   } else {
     throw new Error("Cannot find the Place Bet Button");
   }
-  const confirmBtn = await page.$('[data-cms-key="confirm"]');
+  
+  const confirmBtn = page.locator('[data-cms-key="confirm"]');
   if (confirmBtn) {
     await confirmBtn.click();
   } else {
@@ -238,6 +214,7 @@ async function placeBet(page: Page): Promise<BetResult> {
 }
 
 export async function main(
+  userId: string,
   bookingCode: string,
   splitCount: number,
   rounds: number,
@@ -253,7 +230,7 @@ export async function main(
     return "Invalid Booking Code";
   }
 
-  const { browser, page } = await launchBrowser(log);
+  const { browser, page } = await launchBrowser(userId, log);
 
   try {
     let round = 1;
@@ -301,9 +278,9 @@ export async function main(
     await browser.close();
     console.log(`\n${"═".repeat(48)}`);
     return `📊 Done! Total bets placed: ${totalPlaced}`;
-  } catch (error:any) {
-    return error?.message || error
+  } catch (error: any) {
+    return error?.message || error;
   } finally {
-    await browser.close()
+    await browser.close();
   }
 }
