@@ -1,6 +1,7 @@
 import { chromium, BrowserContext, Page } from "playwright-core";
 import * as path from "path";
 import * as os from "os";
+import CreateBrowser from "../config/browser";
 
 const CHROME_PATHS: Record<string, string> = {
   darwin: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -27,26 +28,7 @@ function getChromePath(): string {
 async function launchBrowser(
   userid: string,
 ): Promise<{ browser: BrowserContext; page: Page }> {
-  const USER_DATA_DIR = path.join(
-    os.homedir(),
-    `.sportybet-chrome-profile-${userid}`,
-  );
-  console.log(`\n🚀 Launching Chrome...`);
-  console.log(`   Profile dir: ${USER_DATA_DIR}\n`);
-
-  const browser = await chromium.launchPersistentContext(USER_DATA_DIR, {
-    executablePath: getChromePath(),
-    headless: true,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-    ],
-    viewport: null,
-  });
-
-  const page = await browser.newPage();
-  await page.goto(SPORTYBET_URL, { waitUntil: "domcontentloaded" });
+   const { browser, page } = await CreateBrowser(userid);
   await sleep(1000);
   return { browser, page };
 }

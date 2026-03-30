@@ -1,24 +1,6 @@
-import { chromium, BrowserContext, Page } from "playwright-core";
-import * as path from "path";
-import * as os from "os";
+import { BrowserContext, Page } from "playwright-core";
+import CreateBrowser from "../config/browser";
 
-const CHROME_PATHS: Record<string, string> = {
-  darwin: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-  linux: "/usr/bin/google-chrome",
-};
-const SPORTYBET_URL = "https://www.sportybet.com/ng/";
-
-function getChromePath(): string {
-  return (
-    process.env.CHROME_PATH ??
-    CHROME_PATHS[process.platform] ??
-    (() => {
-      throw new Error(
-        `Unsupported platform: ${process.platform}. Set CHROME_PATH env var.`,
-      );
-    })()
-  );
-}
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -27,26 +9,8 @@ async function launchBrowser(
   userid: string,
   log: Function,
 ): Promise<{ browser: BrowserContext; page: Page }> {
-  const USER_DATA_DIR = path.join(
-    os.homedir(),
-    `.sportybet-chrome-profile-${userid}`,
-  );
-
   try {
-    const browser = await chromium.launchPersistentContext(USER_DATA_DIR, {
-      executablePath: getChromePath(),
-      headless: true,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-      ],
-      viewport: null,
-    });
-
-    const page = await browser.newPage();
-    await page.goto(SPORTYBET_URL, { waitUntil: "domcontentloaded" });
-
+    const { browser, page } = await CreateBrowser(userid);
     try {
       await page.waitForSelector(".m-info.on", { timeout: 15000 });
     } catch {
@@ -68,12 +32,28 @@ async function launchBrowser(
 
 async function loadBookingCode(page: Page, code: string): Promise<void> {
   console.log(`\n📋 Loading booking code: ${code}`);
+  await page
+    .locator('[data-op="desktop-betslip-success-dialog"]')
+    .waitFor({ state: "hidden", timeout: 8000 })
+    .catch(() => {});
+  await sleep(500);
 
-  await page.goto(SPORTYBET_URL, { waitUntil: "domcontentloaded" });
-  await sleep(2000);
-  // Click the booking code button
-  const deleteBtn = await page.locator(".m-icon-delete").all();
-  const clicked = await page.evaluate((): boolean => {
+  const count = await page
+    .locator(".m-item .m-icon-delete:not(.m-input-icon)")
+    .count();
+  console.log("see count", count);
+  if (count > 0) {
+    for (let i = 0; i < count; i++) {
+      const btn = page
+        .locator(".m-item .m-icon-delete:not(.m-input-icon)")
+        .first();
+      await btn.waitFor({ state: "visible", timeout: 5000 });
+      await btn.click({ force: true });
+      await sleep(300);
+    }
+  }
+
+  await page.evaluate((): boolean => {
     const all = [
       ...document.querySelectorAll<HTMLElement>("button, a, span, div"),
     ];
@@ -89,33 +69,20 @@ async function loadBookingCode(page: Page, code: string): Promise<void> {
     }
     return false;
   });
-
-  if (!clicked && !deleteBtn)
-    throw new Error(
-      "Could not find the booking code button. Sportybet UI may have changed.",
-    );
-  await sleep(1500);
-  if (!clicked && deleteBtn) {
-    for (const btn of deleteBtn) {
-      await btn.click();
-      await sleep(300);
-    }
-  }
+  await sleep(500);
   const inputSel =
     'input[placeholder*="code" i], input[placeholder*="booking" i], input[class*="booking" i]';
+
   await page.waitForSelector(inputSel, { timeout: 10000 });
   await page.click(inputSel, { clickCount: 3 });
-  await page.type(inputSel, code, { delay: 80 });
+  await page.fill(inputSel, code);
   await page.click('[data-op="desktop-booking-code-load-button"]');
   await sleep(2000);
   const input = page.locator(".m-input-com input");
-
   if (input) {
     await input?.click();
     await input.fill("10");
   }
-
-  console.log("✅ Booking code loaded");
 }
 
 async function getGameCount(page: Page): Promise<number> {
@@ -132,9 +99,8 @@ async function removeGamesRandomly(
   stake: number,
 ): Promise<number> {
   console.log(`\n🎲 Keeping ${keepCount} random games, removing the rest...`);
-  const deleteLocator = page.locator(".m-icon-delete");
+  const deleteLocator = page.locator(".m-icon-delete:not(.m-input-icon)");
   const totalGames = await deleteLocator.count();
-
   if (totalGames === 0)
     throw new Error(
       "No games found in betslip. Check the booking code or selectors.",
@@ -152,21 +118,45 @@ async function removeGamesRandomly(
     await input.click({ clickCount: 3 });
     await input.fill(String(stake));
   }
+ 
+  console.log("reached here")
+  const suspendedCount = await page.evaluate(() => {
+    const items = [...document.querySelectorAll(".m-item")];
+    const suspended = items.filter((item) =>
+      item.querySelector('[data-cms-key="suspended"]'),
+    );
+    suspended.forEach((item) => {
+      const btn = item.querySelector<HTMLElement>(
+        ".m-icon-delete:not(.m-input-icon)",
+      );
+      btn?.click();
+    });
+    return suspended.length;
+  });
+  
+  console.log("suspended removed:", suspendedCount);
+  if (suspendedCount > 0) await sleep(300 * suspendedCount); // wait for DOM to settle
 
-  const removeCount = totalGames - keepCount;
+
+  const newLocator = page.locator(".m-icon-delete:not(.m-input-icon)");
+  const newTotal = await newLocator.count();
+  const removeCount = newTotal > keepCount ? newTotal - keepCount : 0;
+
   console.log("we remove ", removeCount);
-  for (let i = 0; i < removeCount; i++) {
-    const deleteButtons = page.locator(".m-icon-delete");
-    const count = await deleteButtons.count();
-    if (count === 0) break;
-    const randomIndex = Math.floor(Math.random() * count);
-    const target = deleteButtons.nth(randomIndex);
-    
-    await target.scrollIntoViewIfNeeded()
-    await target.click({force:true});
-    await page.waitForTimeout(350);
-  }
+  if (removeCount > 0) {
+    for (let i = 0; i < removeCount; i++) {
+      const deleteButtons = page.locator(".m-icon-delete:not(.m-input-icon)");
+      const count = await deleteButtons.count();
+      console.log("see count", count);
+      if (count === 0) break;
+      const randomIndex = Math.floor(Math.random() * count);
+      const target = deleteButtons.nth(randomIndex);
 
+      await target.scrollIntoViewIfNeeded();
+      await target.click({ force: true });
+      await page.waitForTimeout(350);
+    }
+  }
   await sleep(1000);
   const remaining = await getGameCount(page);
   return remaining;
@@ -178,14 +168,14 @@ async function placeBet(page: Page): Promise<BetResult> {
   console.log("💰 Placing bet...");
 
   const acceptChangeBtn = page.locator('[data-cms-key="accept_changes"]');
-  await acceptChangeBtn.waitFor({ timeout: 1000 }).catch(() => null);
-  if (acceptChangeBtn) {
-    await acceptChangeBtn.click();
+  const exists = await acceptChangeBtn.count();
+  if (exists > 0) {
+    await acceptChangeBtn.click({ force: true });
     await sleep(350);
   }
 
   const placeBetBtn = page.locator('[data-cms-key="place_bet"]');
-  if (placeBetBtn) {
+  if (await placeBetBtn.isVisible()) {
     await placeBetBtn.click();
     await sleep(350);
   } else {
@@ -200,17 +190,22 @@ async function placeBet(page: Page): Promise<BetResult> {
   }
 
   await sleep(1500);
-  const success = await page.$('[data-op="desktop-betslip-success-dialog"]');
-  const insufficient = await page.$(
-    '.m-dialog-wrapper .m-pop-main [data-cms-key="deposit"]',
-  );
-
+  const success = page.locator('[data-op="desktop-betslip-success-dialog"]');
   if (success) {
     const bookingCode = await page.$eval(".booking-code", (el) =>
       el.textContent?.trim(),
     );
+    await page
+      .locator(
+        '[data-op="desktop-betslip-success-dialog"] button[data-ret="close"]',
+      )
+      .click();
     return "success";
   }
+
+  const insufficient = await page.$(
+    '.m-dialog-wrapper .m-pop-main [data-cms-key="deposit"]',
+  );
 
   if (insufficient) return "insufficient_funds";
 
